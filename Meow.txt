@@ -1,0 +1,264 @@
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
+local RS = game:GetService("ReplicatedStorage")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local Lighting = game:GetService("Lighting")
+
+-- Настройки
+local auraEnabled = false
+local auraDistance = 30
+local auraCooldown = 0.1
+local killServerEnabled = false
+local espEnabled = false
+local tracersEnabled = false
+local hitboxEnabled = false
+local namesEnabled = false
+local chamsEnabled = false
+local milkEnabled = false
+local effectEnabled = true 
+local keybinds = {}
+local autoToggles = {}
+local walkSpeedValue = 16
+local jumpPowerValue = 50
+local hitboxSize = 2
+
+-- Переменные для Fly + Noclip
+local flyNoclipEnabled = false
+local flySpeeds = 1 
+local tpwalking = false
+
+--- ЭФФЕКТ ЭКРАНА ---
+local screenEffectGui = Instance.new("ScreenGui", CoreGui)
+screenEffectGui.Name = "AbilityEffectGui"
+screenEffectGui.IgnoreGuiInset = true
+
+local effectImage = Instance.new("ImageLabel", screenEffectGui)
+effectImage.Size = UDim2.new(1, 0, 1, 0)
+effectImage.BackgroundTransparency = 1
+effectImage.Image = "rbxassetid://17285946641"
+effectImage.ImageTransparency = 1 
+effectImage.ScaleType = Enum.ScaleType.Stretch
+
+local function flashEffect()
+    if not effectEnabled then return end 
+    task.spawn(function()
+        effectImage.ImageTransparency = 0.6 
+        task.wait(0.3)
+        for i = 0.6, 1, 0.05 do
+            effectImage.ImageTransparency = i
+            task.wait(0.02)
+        end
+        effectImage.ImageTransparency = 1
+    end)
+end
+
+-- Поиск ближайшего
+local function getNearest(range)
+    local target, dist = nil, range or math.huge
+    local char = LP.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local d = (char.HumanoidRootPart.Position - p.Character.HumanoidRootPart.Position).Magnitude
+            if d < dist then target = p.Character; dist = d end
+        end
+    end
+    return target
+end
+
+-- Сфера ауры
+local visualSphere = Instance.new("Part", workspace)
+visualSphere.Name = "AuraVisual"
+visualSphere.Shape = Enum.PartType.Ball
+visualSphere.Transparency = 1
+visualSphere.Color = Color3.fromRGB(150, 0, 255)
+visualSphere.CanCollide = false
+visualSphere.Anchored = true
+visualSphere.Material = Enum.Material.Neon
+visualSphere.CastShadow = false
+
+-- ФУНКЦИИ ВИЗУАЛОВ
+local function updateVisuals()
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character then
+            local char = p.Character
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            
+            -- ESP Highlight / Chams
+            local hl = char:FindFirstChild("ESPHL")
+            if espEnabled or chamsEnabled then
+                if not hl then 
+                    hl = Instance.new("Highlight", char)
+                    hl.Name = "ESPHL"
+                end
+                hl.Enabled = true
+                hl.FillAlpha = chamsEnabled and 0.5 or 0
+                hl.OutlineAlpha = espEnabled and 0 or 1
+                hl.FillColor = Color3.fromRGB(150, 0, 255)
+            elseif hl then 
+                hl:Destroy() 
+            end
+
+            -- Hitbox
+            if hrp then
+                if hitboxEnabled then
+                    hrp.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+                    hrp.Transparency = 0.7
+                    hrp.Color = Color3.fromRGB(255, 0, 0)
+                    hrp.CanCollide = false
+                else
+                    hrp.Size = Vector3.new(2, 2, 1)
+                    hrp.Transparency = 1
+                end
+            end
+        end
+    end
+end
+
+-- Трассеры (RunService)
+local tracerLines = {}
+RunService.RenderStepped:Connect(function()
+    for _, line in pairs(tracerLines) do line:Destroy() end
+    table.clear(tracerLines)
+
+    if tracersEnabled then
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local pos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(p.Character.HumanoidRootPart.Position)
+                if onScreen then
+                    local line = Drawing.new("Line")
+                    line.Visible = true
+                    line.From = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, workspace.CurrentCamera.ViewportSize.Y)
+                    line.To = Vector2.new(pos.X, pos.Y)
+                    line.Color = Color3.fromRGB(255, 255, 255)
+                    line.Thickness = 1
+                    table.insert(tracerLines, line)
+                end
+            end
+        end
+    end
+    updateVisuals()
+end)
+
+-- Fly / Noclip логика (без изменений)
+local function toggleFlyNoclip()
+    local speaker = LP
+    local char = speaker.Character
+    if not char or not char:FindFirstChild("Humanoid") then return end
+    local hum = char.Humanoid
+    if flyNoclipEnabled then
+        tpwalking = true
+        task.spawn(function()
+            local hb = RunService.Heartbeat
+            while tpwalking and speaker.Character and hum and hum.Parent do
+                hb:Wait()
+                if hum.MoveDirection.Magnitude > 0 then speaker.Character:TranslateBy(hum.MoveDirection * flySpeeds) end
+            end
+        end)
+        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+    else
+        tpwalking = false
+        hum:ChangeState(Enum.HumanoidStateType.RunningNoPhysics)
+    end
+end
+
+-- Потоки логики
+task.spawn(function()
+    while true do
+        if killServerEnabled then
+            for _, p in pairs(Players:GetPlayers()) do
+                if p ~= LP and p.Character then pcall(function() RS.Characters.Homelander.Remotes.HitGround:FireServer(p.Character) end) end
+            end
+            task.wait(0.0015)
+        else task.wait(0.2) end
+    end
+end)
+
+-- Создание Окна
+local Window = WindUI:CreateWindow({ Title = "Femboy", Icon = "solar:heart-bold", Size = UDim2.fromOffset(230, 420) })
+Window:SetUIScale(0.85)
+
+local MainTab = Window:Tab({ Title = "Abilities", Icon = "solar:fire-bold" })
+local PlayerTab = Window:Tab({ Title = "Player", Icon = "solar:user-bold" })
+local VisualTab = Window:Tab({ Title = "Visuals", Icon = "solar:eye-bold" })
+local AuraTab = Window:Tab({ Title = "Kill Aura", Icon = "solar:danger-bold" })
+local InfoTab = Window:Tab({ Title = "Info", Icon = "solar:info-circle-bold" })
+
+-- Хелпер способностей
+local function AddAbilityWithAuto(sec, name, func, defaultKey)
+    local wrappedFunc = function() flashEffect(); func() end
+    if defaultKey then keybinds[defaultKey] = wrappedFunc end
+    sec:Button({ Title = name, Callback = wrappedFunc })
+end
+
+-- Abilities (The Boys, Others, Bring System сохранено как было)
+local bsec = MainTab:Section({ Title = "Abilities", Box = true })
+local knifeThrowFunc = function() flashEffect(); RS.Characters.SoldierBoy.Remotes.MoveTwo:FireServer() end
+keybinds[Enum.KeyCode.KeypadNine] = knifeThrowFunc
+
+local heliFunc = function() flashEffect(); RS.Characters.Lawliet.Remotes.EMoveHeli:FireServer() end
+keybinds[Enum.KeyCode.KeypadEight] = heliFunc
+
+local chaosFinFunc = function() flashEffect(); RS.Characters.Wanda.Remotes.ChaosFinisher:FireServer() end
+keybinds[Enum.KeyCode.KeypadFive] = chaosFinFunc
+
+local pDetonationFunc = function() flashEffect(); RS.Characters.Thanos.Remotes.PowerDetonation:FireServer() end
+keybinds[Enum.KeyCode.KeypadSix] = pDetonationFunc
+
+local earthSpikesFunc = function() flashEffect(); RS.Characters.Thanos.Remotes.EarthSpikes:FireServer() end
+keybinds[Enum.KeyCode.KeypadSeven] = earthSpikesFunc
+
+local bringSec = MainTab:Section({ Title = "Bring System", Box = true })
+local function bringAllFunc() for _, p in pairs(Players:GetPlayers()) do if p ~= LP and p.Character then pcall(function() RS.Characters.Creel.Remotes.VinePull:FireServer(p.Character) end) end end end
+keybinds[Enum.KeyCode.KeypadOne] = bringAllFunc
+local function bringNearestFunc() local t = getNearest(math.huge) if t then pcall(function() RS.Characters.Creel.Remotes.VinePull:FireServer(t) end) end end
+keybinds[Enum.KeyCode.KeypadTwo] = bringNearestFunc
+local function bringRandomFunc() local plrs = Players:GetPlayers(); local v = {}; for _, p in pairs(plrs) do if p ~= LP and p.Character then table.insert(v, p) end end; if #v > 0 then pcall(function() RS.Characters.Creel.Remotes.VinePull:FireServer(v[math.random(1,#v)].Character) end) end end
+keybinds[Enum.KeyCode.KeypadThree] = bringRandomFunc
+
+local selectedBringPlayer = nil
+local bringDropdown = bringSec:Dropdown({ Title = "Select Player", Values = {}, Callback = function(v) selectedBringPlayer = v end })
+local function bringSelectedFunc() local targ = selectedBringPlayer and Players:FindFirstChild(selectedBringPlayer); if targ and targ.Character then pcall(function() RS.Characters.Creel.Remotes.VinePull:FireServer(targ.Character) end) end end
+keybinds[Enum.KeyCode.KeypadFour] = bringSelectedFunc
+
+-- PLAYER TAB
+local psec = PlayerTab:Section({ Title = "Movement", Box = true })
+psec:Slider({ Title = "Walk Speed", Value = {Min = 16, Max = 300, Default = 16}, Callback = function(v) walkSpeedValue = v end })
+psec:Slider({ Title = "Jump Power", Value = {Min = 50, Max = 500, Default = 50}, Callback = function(v) jumpPowerValue = v end })
+
+local pext = PlayerTab:Section({ Title = "Extra Functions", Box = true })
+pext:Button({ Title = "Respawn Character", Callback = function() if LP.Character then LP.Character:BreakJoints() end end })
+pext:Toggle({ Title = "Anti-Ragdoll", Value = false, Callback = function(v) if LP.Character and LP.Character:FindFirstChild("Humanoid") then LP.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, not v) end end })
+pext:Button({ Title = "TP to Random Player", Callback = function() local plrs = Players:GetPlayers(); local r = plrs[math.random(1, #plrs)]; if r ~= LP and r.Character then LP.Character:MoveTo(r.Character.HumanoidRootPart.Position) end end })
+
+-- VISUALS TAB
+local vsec = VisualTab:Section({ Title = "Player Visuals", Box = true })
+vsec:Toggle({ Title = "Enable Hitbox", Value = false, Callback = function(v) hitboxEnabled = v end })
+vsec:Slider({ Title = "Hitbox Size", Value = {Min = 2, Max = 20, Default = 2}, Callback = function(v) hitboxSize = v end })
+vsec:Toggle({ Title = "Enable Tracers", Value = false, Callback = function(v) tracersEnabled = v end })
+vsec:Toggle({ Title = "Enable Highlight", Value = false, Callback = function(v) espEnabled = v end })
+vsec:Toggle({ Title = "Enable Chams", Value = false, Callback = function(v) chamsEnabled = v end })
+vsec:Toggle({ Title = "FullBright", Value = false, Callback = function(v) Lighting.Brightness = v and 2 or 1; Lighting.ClockTime = v and 12 or Lighting.ClockTime end })
+
+-- БИНДЫ
+UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if keybinds[input.KeyCode] then pcall(keybinds[input.KeyCode]) end
+end)
+
+keybinds[Enum.KeyCode.Z] = function() flyNoclipEnabled = not flyNoclipEnabled; toggleFlyNoclip() end
+keybinds[Enum.KeyCode.Y] = function() auraEnabled = not auraEnabled end
+keybinds[Enum.KeyCode.X] = function() killServerEnabled = not killServerEnabled end
+
+local asec = AuraTab:Section({ Title = "Kill Aura", Box = true })
+asec:Toggle({ Title = "Enable Aura", Value = auraEnabled, Callback = function(v) auraEnabled = v end })
+asec:Toggle({ Title = "Enable Kill Server", Value = false, Callback = function(v) killServerEnabled = v end })
+asec:Slider({ Title = "CD", Value = {Min = 0.0015, Max = 1, Default = 0.1}, Step = 0.005, Callback = function(v) auraCooldown = v end })
+
+local isec = InfoTab:Section({ Title = "Keys & Info", Box = true })
+isec:Paragraph({ Title = "Movement", Desc = "Fly: Z | Kill Aura: Y | Kill Server: X" })
+isec:Paragraph({ Title = "Numpad Bring", Desc = "All: Num1 | Near: Num2 | Rand: Num3 | Sel: Num4" })
+isec:Paragraph({ Title = "Numpad Abilities", Desc = "Chaos: Num5 | Power: Num6 | Spikes: Num7 | Heli: Num8 | Knife: Num9" })
